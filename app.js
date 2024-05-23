@@ -2,11 +2,10 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const connectDB = require('./config/db');
 const productRoutes = require('./routes/productRoutes');
-const { encryptResponse, decryptRequest } = require('./utils/encryption');
 const orderRoutes = require('./routes/orderRoutes');
 const dailyCollectionJob = require('./jobs/dailyCollectionJob');
 const dotenv = require('dotenv');
-const { encryptionMiddleware } = require('./middlewares/encryptionMiddleware');
+const { decryptRequest, encryptResponse } = require('./middlewares/encryptionMiddleware');
 
 // Load environment variables
 dotenv.config();
@@ -16,16 +15,15 @@ connectDB();
 
 const app = express();
 
-// Middleware
+// Middleware to parse JSON bodies
 app.use(bodyParser.json());
-app.use(encryptionMiddleware);
+
+// Apply decryption middleware to all incoming requests
+app.use(decryptRequest);
 
 // Routes
 app.use('/api', productRoutes);
 app.use('/api', orderRoutes);
-
-// Apply decryption middleware to all incoming requests
-app.use(decryptRequest);
 
 // Apply encryption middleware to all outgoing responses
 app.use(encryptResponse);

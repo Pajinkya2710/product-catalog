@@ -1,38 +1,61 @@
 const crypto = require('crypto');
+require('dotenv').config();
 
-// Ensure you have a secure key and IV
-const algorithm = 'aes-256-ctr';
-const key = crypto.randomBytes(32);  // Your encryption key (32 bytes for aes-256-ctr)
-const iv = crypto.randomBytes(16);   // Initialization vector (16 bytes for aes-256-ctr)
+const algorithm = 'aes-256-cbc';
+const ivLength = 16;
+const secretKey = Buffer.from('a1b2c3d4e5f6g7h8a1b2c3d4e5f6g7h8', 'hex');
 
 function encrypt(text) {
-  const cipher = crypto.createCipheriv(algorithm, key, iv);
-  const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
-  return iv.toString('hex') + ':' + encrypted.toString('hex');
+  const iv = crypto.randomBytes(ivLength);
+  const cipher = crypto.createCipheriv(algorithm, secretKey, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
 }
 
 function decrypt(text) {
-  const parts = text.split(':');
-  const iv = Buffer.from(parts.shift(), 'hex');
-  const encryptedText = Buffer.from(parts.join(':'), 'hex');
-  const decipher = crypto.createDecipheriv(algorithm, key, iv);
-  const decrypted = Buffer.concat([decipher.update(encryptedText), decipher.final()]);
-  return decrypted.toString('utf8');
+  const textParts = text.split(':');
+  if (textParts.length !== 2) {
+    throw new Error('Invalid encrypted data format');
+  }
+  const iv = Buffer.from(textParts[0], 'hex');
+  const encryptedText = Buffer.from(textParts[1], 'hex');
+  const decipher = crypto.createDecipheriv(algorithm, secretKey, iv);
+  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
 }
 
-exports.encryptionMiddleware = (req, res, next) => {
-  if (req.body) {
-    // Encrypt sensitive fields if necessary
-    if (req.body.sensitiveData) {
-      req.body.sensitiveData = encrypt(req.body.sensitiveData);
+function encryptResponse(req, res, next) {
+  const originalSend = res.send;
+  res.send = function (body) {
+    if (typeof body === 'object' && !(body instanceof Buffer)) {
+      const encryptedBody = encrypt(JSON.stringify(body));
+      console.log('Response Body Before Encryption:', body);
+      console.log('Encrypted Response Body:', encryptedBody);
+      originalSend.call(this, encryptedBody);
+    } else {
+      originalSend.call(this, body);
+    }
+  };
+  next();
+}
+
+function decryptRequest(req, res, next) {
+  if (req.body && typeof req.body === 'string') {
+    console.log('Request Body Before Decryption:', req.body);
+    try {
+      req.body = JSON.parse(decrypt(req.body));
+      console.log('Decrypted Request Body:', req.body);
+    } catch (error) {
+      console.error('Decryption Error:', error);
+      return res.status(400).send('Invalid encrypted data');
     }
   }
-
-  // Call next middleware
   next();
+}
 
-  // Decrypt response data if necessary
-  if (res.data && res.data.sensitiveData) {
-    res.data.sensitiveData = decrypt(res.data.sensitiveData);
-  }
+module.exports = {
+  encryptResponse,
+  decryptRequest,
 };
